@@ -2,6 +2,8 @@ package wormhole
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"path"
@@ -47,15 +49,7 @@ func worker(wg *sync.WaitGroup, inputChan chan Commit, resultChan chan Commit,
 				commit.TestId,
 				targetPrefix, compHash[:len(targetPrefix)])
 		}
-		/*if bytes.Equal(targetPrefix[0:3], compHash[:len(targetPrefix)][0:3]) {
-		    fmt.Printf("SIMULATED FOUND!!!!\n")
-		    fmt.Printf("%d %x %x\n",
-		                commit.TestId,
-		                targetPrefix, compHash[:len(targetPrefix)])
-		    doneChan <- true
-		    resultChan <- commit
-		    break
-		}*/
+
 		if bytes.Equal(targetPrefix, compHash[:len(targetPrefix)]) {
 			fmt.Printf("comm %d %x %x %s\n", commit.TestId, targetPrefix, compHash[:len(targetPrefix)], commit.Comment)
 			fmt.Printf("FOUND!!!!\n")
@@ -89,7 +83,13 @@ func New(targetPath string, templatePath string) (*Target, error) {
 	}, nil
 }
 
-func (target *Target) Brute(repo *git.Repository) (*Commit, error) {
+func (target *Target) Brute(repo *git.Repository, strategy string, targetPrefix []byte) (*Commit, error) {
+	if targetPrefix == nil {
+		targetPrefix = make([]byte, 2)
+		rand.Read(targetPrefix)
+	}
+	fmt.Printf("target_prefix > %s\n", hex.EncodeToString(targetPrefix))
+
 	head, err := repo.Head()
 	if err != nil {
 		panic(err)
@@ -138,7 +138,6 @@ func (target *Target) Brute(repo *git.Repository) (*Commit, error) {
 	}
 
 	fmt.Printf("Searching for collision...\n")
-	targetPrefix := []byte{0xde, 0xad}
 	now := time.Now()
 
 	/*
@@ -193,7 +192,9 @@ func (target *Target) Brute(repo *git.Repository) (*Commit, error) {
 		Comment:    "",
 	}
 
-	go commentCollisionStrategy(inputChan, doneChan, baseCommit)
+	if strategy == "comment" {
+		go commentCollisionStrategy(inputChan, doneChan, baseCommit)
+	}
 	wg.Wait()
 
 	select {

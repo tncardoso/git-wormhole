@@ -6,7 +6,7 @@ import (
 	"github.com/go-git/go-git/v5"
 )
 
-func Collide() {
+func Collide(strategy string, prefix []byte) {
 	repo, err := git.PlainOpen(".")
 	if err != nil {
 		panic(err)
@@ -17,7 +17,7 @@ func Collide() {
 		panic(err)
 	}
 
-	result, err := target.Brute(repo)
+	result, err := target.Brute(repo, strategy, prefix)
 	if err != nil {
 		panic(err)
 	}
