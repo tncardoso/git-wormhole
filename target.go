@@ -17,23 +17,6 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
-func commentCollisionStrategy(inputChan chan Commit,
-	doneChan chan bool, base Commit) {
-	defer close(inputChan)
-	for tests := 0; tests < 10000000000; tests++ {
-		select {
-		case done := <-doneChan:
-			fmt.Printf("prematurely stopping producer! %#v\n", done)
-			return
-		default:
-			commit := base
-			commit.TestId = tests
-			commit.Comment = fmt.Sprintf("comment - %d", tests)
-			inputChan <- commit
-		}
-	}
-}
-
 func worker(wg *sync.WaitGroup, inputChan chan Commit, resultChan chan Commit,
 	doneChan chan bool, targetPrefix []byte) {
 	defer wg.Done()
@@ -45,20 +28,22 @@ func worker(wg *sync.WaitGroup, inputChan chan Commit, resultChan chan Commit,
 		compHash := commit.Hash()
 
 		if commit.TestId%1000000 == 0 {
-			fmt.Printf("%d %x %x\n",
+			fmt.Printf("    test_id= %d target= %x  current= %x\n",
 				commit.TestId,
-				targetPrefix, compHash[:len(targetPrefix)])
+				targetPrefix,
+				compHash[:len(targetPrefix)])
 		}
 
 		if bytes.Equal(targetPrefix, compHash[:len(targetPrefix)]) {
-			fmt.Printf("comm %d %x %x %s\n", commit.TestId, targetPrefix, compHash[:len(targetPrefix)], commit.Comment)
-			fmt.Printf("FOUND!!!!\n")
-			fmt.Printf("%s\n", compHash.String())
 			doneChan <- true
 			resultChan <- commit
 			break
 		}
 	}
+}
+
+type TemplateData struct {
+	Prefix []byte
 }
 
 type Target struct {
@@ -83,7 +68,7 @@ func New(targetPath string, templatePath string) (*Target, error) {
 	}, nil
 }
 
-func (target *Target) Brute(repo *git.Repository, strategy string, targetPrefix []byte) (*Commit, error) {
+func (target *Target) Brute(repo *git.Repository, strategy Strategy, targetPrefix []byte, comment string) (*Commit, error) {
 	if targetPrefix == nil {
 		targetPrefix = make([]byte, 2)
 		rand.Read(targetPrefix)
@@ -106,12 +91,21 @@ func (target *Target) Brute(repo *git.Repository, strategy string, targetPrefix 
 		panic(err)
 	}
 
-	overrides := make(map[string]plumbing.Hash)
+	data := &TemplateData{
+		Prefix: targetPrefix,
+	}
 
+	overrides := make(map[string]plumbing.Hash)
 	var content bytes.Buffer
 	targetPath := path.Join(target.path...)
-	target.template.Execute(&content, 0)
+	target.template.Execute(&content, data)
 	overrides[targetPath] = plumbing.ComputeHash(plumbing.BlobObject, content.Bytes())
+
+	// write target with template
+	err = ioutil.WriteFile(targetPath, content.Bytes(), 0644)
+	if err != nil {
+		return nil, err
+	}
 
 	// update directories hashes
 	for i := len(target.path) - 1; i > 0; i-- {
@@ -138,38 +132,6 @@ func (target *Target) Brute(repo *git.Repository, strategy string, targetPrefix 
 	}
 
 	fmt.Printf("Searching for collision...\n")
-	now := time.Now()
-
-	/*
-		now := time.Now()
-		//maxDelta := int64(8*60*60) // 8 hours
-		maxDelta := int64(10) // 8 hours
-		//targetPrefix := []byte{0xde, 0xad, 0xc0, 0xde}
-		tests := 0
-
-
-			for authorDelta := int64(0); authorDelta < maxDelta; authorDelta++ {
-				for commitDelta := authorDelta; commitDelta >= 0; commitDelta-- {
-					authorTime := now.Add(-time.Second * time.Duration(authorDelta))
-					commitTime := now.Add(time.Second * time.Duration(commitDelta))
-					compHash := CommitHash(cfg, treeHash, parentHash, authorTime, commitTime, "comment")
-					if bytes.Equal(targetPrefix[0:3], compHash[:len(targetPrefix)][0:3]) {
-						fmt.Printf("%d %x %x\n", tests, targetPrefix, compHash[:len(targetPrefix)])
-
-					}
-					if tests%1000000 == 0 {
-						fmt.Printf("%d %x %x\n", tests, targetPrefix, compHash[:len(targetPrefix)])
-					}
-					if bytes.Equal(targetPrefix, compHash[:len(targetPrefix)]) {
-						fmt.Printf("%d %x %x\n", tests, targetPrefix, compHash[:len(targetPrefix)])
-						fmt.Printf("FOUND!!!!\n")
-						fmt.Printf("%s\n", compHash.String())
-						panic("FOUND")
-					}
-					tests += 1
-				}
-			}*/
-
 	inputBuffSize := 4096
 	workers := 6
 	var wg sync.WaitGroup
@@ -183,18 +145,17 @@ func (target *Target) Brute(repo *git.Repository, strategy string, targetPrefix 
 		go worker(&wg, inputChan, resultChan, doneChan, targetPrefix)
 	}
 
+	now := time.Now()
 	baseCommit := Commit{
 		Config:     cfg,
 		TreeHash:   treeHash,
 		ParentHash: head.Hash(),
 		AuthorTime: now,
 		CommitTime: now,
-		Comment:    "",
+		Comment:    comment,
 	}
 
-	if strategy == "comment" {
-		go commentCollisionStrategy(inputChan, doneChan, baseCommit)
-	}
+	go strategy.Producer(inputChan, doneChan, baseCommit)
 	wg.Wait()
 
 	select {
