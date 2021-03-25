@@ -17,7 +17,13 @@ func main() {
 	maxTests := flag.Int("tests", 0x80000000, "maximum number of tests in comment strategy")
 	maxDelta := flag.Int64("delta", 6*60*60, "max time change in author date in seconds (default: 6 hours)")
 	maxDiff := flag.Int64("diff", 60*60, "max difference between author and commit dates (default: 1 hour)")
+    version := flag.Bool("version", false, "show version")
 	flag.Parse()
+
+    if *version {
+        fmt.Printf("git-wormhole\n%s\n", Version)
+        return
+    }
 
 	args := flag.Args()
 	if len(args) != 2 {
