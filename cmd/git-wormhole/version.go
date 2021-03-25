@@ -1,3 +1,3 @@
 package main
 
-const Version = "Genesis"
+const Version = "v000000"
