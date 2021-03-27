@@ -1,7 +1,7 @@
 # git-wormhole
 
 <p align="center">
-  <img src="master/img/logo.png" alt="git-wormhole logo" width="20%" />
+  <img src="https://raw.githubusercontent.com/tncardoso/git-wormhole/master/img/logo.png" alt="git-wormhole logo" width="20%" />
 </p>
 
 git-wormhole is a tool for generating partial commit hash collisions.
